@@ -1,0 +1,84 @@
+# .github/workflows/deploy.yml
+
+name: Deploy Django Application
+
+on:
+  push:
+    branches: [ main ]  # or your default branch
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: bo-stage
+  GKE_CLUSTER: be-demo
+  GKE_ZONE: asia-south1
+  DEPLOYMENT_NAME: backend-application
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup gcloud CLI
+      uses: google-github-actions/setup-gcloud@v0
+      with:
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure GKE credentials
+      uses: google-github-actions/get-gke-credentials@v0
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GKE_ZONE }}
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v1
+      with:
+        version: '3.8.0'
+
+    - name: Create Static IP 
+      run: |
+        gcloud compute addresses create gke-ingress-static-ip --global || true
+
+    - name: Generate SSL Certificate
+      run: |
+        mkdir -p ssl
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+          -keyout ssl/tls.key -out ssl/tls.crt \
+          -subj "/CN=api-v2.integration-betteropinions.com"
+
+    - name: Create TLS Secret
+      run: |
+        kubectl create secret tls gke-openssl-cert \
+          --cert=ssl/tls.crt \
+          --key=ssl/tls.key \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Install Django Environment
+      run: |
+        helm install django-env ./configuration --atomic \
+          || helm upgrade --install django-env ./configuration
+
+    - name: Deploy Backend Application
+      run: |
+        helm install backend-application ./application --atomic \
+          || helm upgrade --install backend-application ./application
+
+    - name: Deploy Ingress
+      run: |
+        helm install django-ingress ./ingress --atomic \
+          || helm upgrade --install django-ingress ./ingress
+
+    - name: Deploy HPA
+      run: |
+        helm install django-hpa ./autoscalling --atomic \
+          || helm upgrade --install django-hpa ./autoscalling
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods
+        kubectl get services
+        kubectl get ingress
