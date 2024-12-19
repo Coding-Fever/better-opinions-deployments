@@ -31,7 +31,8 @@ jobs:
     - name: Configure GKE credentials
       uses: google-github-actions/get-gke-credentials@v1
       with:
-        cluster_name: ${{ env.GKE_CLUSTER }}
+        #cluster_name: ${{ env.GKE_CLUSTER }}
+        cluster_name: projects/bo-stage/locations/asia-south1/clusters/be-demo
         location: ${{ env.GKE_ZONE }}
         project_id: ${{ env.PROJECT_ID }}
 
